@@ -9,16 +9,17 @@ const stderr = std.io.getStdErr().writer();
 const types = @import("types.zig");
 const Val = types.Val;
 const String = types.String;
+const Quote = types.Quote;
 
 pub const Dt = struct {
     allocator: Allocator,
-    context: ArrayList(ArrayList(Val)),
+    context: ArrayList(Quote),
 
     const Self = Dt;
 
     pub fn init(allocator: Allocator) !Self {
-        var main = ArrayList(Val).init(allocator);
-        var mainCtx = ArrayList(ArrayList(Val)).init(allocator);
+        var main = try Quote.new(allocator);
+        var mainCtx = ArrayList(Quote).init(allocator);
         try mainCtx.append(main);
 
         return .{
@@ -29,38 +30,38 @@ pub const Dt = struct {
 
     pub fn deinit(self: Self) void {
         for (self.context.items) |ctx| {
-            for (ctx.items) |val| {
+            for (ctx.contents.items) |val| {
                 val.deinit();
             }
-            ctx.deinit();
+            ctx.release();
         }
         self.context.deinit();
     }
 
     pub fn push(self: *Self, val: Val) !void {
-        var top: ArrayList(Val) = self.context.pop();
-        try top.append(val);
+        var top: Quote = self.context.pop();
+        try top.contents.append(val);
         try self.context.append(top);
     }
 
     pub fn pop(self: *Self) !Val {
-        var top: ArrayList(Val) = self.context.pop();
-        const val = top.pop();
+        var top: Quote = self.context.pop();
+        const val = top.contents.pop();
         try self.context.append(top);
         return val;
     }
 
     pub fn dup(self: *Self) !void {
-        var top: ArrayList(Val) = self.context.pop();
-        var val: Val = top.pop();
-        try top.append(try val.clone());
-        try top.append(val);
+        var top: Quote = self.context.pop();
+        var val: Val = top.contents.pop();
+        try top.contents.append(try val.copy());
+        try top.contents.append(val);
         try self.context.append(top);
     }
 
     pub fn drop(self: *Self) !void {
-        var top: ArrayList(Val) = self.context.pop();
-        var val: Val = top.pop();
+        var top: Quote = self.context.pop();
+        var val: Val = top.contents.pop();
         val.deinit();
         try self.context.append(top);
     }
@@ -80,15 +81,8 @@ pub const Dt = struct {
     }
 
     pub fn status(self: Self) !void {
-        try stdout.print("[ ", .{});
-
-        const top = self.context.getLast();
-        for (top.items) |v| {
-            try v.print(stdout);
-            try stdout.print(" ", .{});
-        }
-
-        try stdout.print("]\n", .{});
+        const v: Val = .{ .quote = self.context.getLast() };
+        try v.print(stdout);
     }
 };
 
