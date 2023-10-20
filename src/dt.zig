@@ -61,15 +61,21 @@ pub const Dt = struct {
 
     pub fn drop(self: *Self) !void {
         var top: Quote = self.context.pop();
-        var val: Val = top.contents.pop();
-        val.deinit();
+        if (top.contents.items.len < 1) {
+            try stderr.print("ERR: stack underflow\n", .{});
+        } else {
+            var val: Val = top.contents.pop();
+            val.deinit();
+        }
         try self.context.append(top);
     }
 
     pub fn readln(self: *Self) !void {
         var line = try String.new(self.allocator);
         try stdin.streamUntilDelimiter(line.contents.writer(), '\n', null);
-        if (line.contents.items[0] == '"' and line.contents.getLast() == '"') {
+        if (line.contents.items.len < 1) {
+            return;
+        } else if (line.contents.items[0] == '"' and line.contents.getLast() == '"') {
             _ = line.contents.orderedRemove(0);
             _ = line.contents.pop();
             try self.push(.{ .string = line });
@@ -77,12 +83,21 @@ pub const Dt = struct {
             try self.dup();
         } else if (std.mem.eql(u8, "drop", line.contents.items)) {
             try self.drop();
+        } else if (std.mem.eql(u8, "[", line.contents.items)) {
+            var q = try Quote.new(self.allocator);
+            try self.context.append(q);
+        } else if (std.mem.eql(u8, "]", line.contents.items)) {
+            var q = self.context.pop();
+            var top = self.context.pop();
+            try top.contents.append(.{ .quote = q });
+            try self.context.append(top);
         }
     }
 
     pub fn status(self: Self) !void {
         const v: Val = .{ .quote = self.context.getLast() };
         try v.print(stdout);
+        try stdout.print("\n", .{});
     }
 };
 

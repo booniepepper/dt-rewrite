@@ -34,7 +34,7 @@ pub const Val = union(enum) {
                     try v.print(writer);
                     try writer.print(" ", .{});
                 }
-                try writer.print("]\n", .{});
+                try writer.print("]", .{});
             },
         }
     }
@@ -43,6 +43,7 @@ pub const Val = union(enum) {
 pub const String = RcArrayList(u8);
 pub const Quote = RcArrayList(Val);
 
+/// A reference-counted array list.
 pub fn RcArrayList(comptime T: type) type {
     return struct {
         allocator: Allocator,
@@ -88,6 +89,8 @@ pub fn RcArrayList(comptime T: type) type {
             return theClone;
         }
 
+        /// Releases this reference. If this was the final reference, the
+        /// contents and the counter are freed.
         pub fn release(self: Self) void {
             self.refs.* -= 1;
             if (self.refs.* == 0) {
