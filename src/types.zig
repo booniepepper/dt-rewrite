@@ -10,11 +10,8 @@ pub const Val = union(enum) {
 
     pub fn deinit(self: Self) void {
         switch (self) {
-            .string => |s| s.release(),
-            .quote => |q| {
-                for (q.contents.items) |val| val.deinit();
-                q.release();
-            },
+            .string => |s| free(s),
+            .quote => |q| free(q),
         }
     }
 
@@ -39,6 +36,19 @@ pub const Val = union(enum) {
         }
     }
 };
+
+const canClone = std.meta.trait.hasFn("clone");
+
+const canRelease = std.meta.trait.hasFn("release");
+const canDeinit = std.meta.trait.hasFn("deinit");
+const hasItems = std.meta.trait.hasField("items");
+
+pub fn free(thing: anytype) void {
+    const T = @TypeOf(thing);
+    if (comptime hasItems(T)) for (thing.items) |item| free(item);
+    if (comptime canDeinit(T)) thing.deinit();
+    if (comptime canRelease(T)) thing.release();
+}
 
 pub const String = RcArrayList(u8);
 pub const Quote = RcArrayList(Val);
@@ -94,19 +104,9 @@ pub fn RcArrayList(comptime T: type) type {
         pub fn release(self: Self) void {
             self.refs.* -= 1;
             if (self.refs.* == 0) {
-                if (comptime canRelease(T)) {
-                    for (self.contents.items) |item| item.release();
-                } else if (comptime canDeinit(T)) {
-                    for (self.contents.items) |item| item.deinit();
-                }
-
-                self.contents.deinit();
+                free(self.contents);
                 self.allocator.destroy(self.refs);
             }
         }
     };
 }
-
-const canClone = std.meta.trait.hasFn("clone");
-const canRelease = std.meta.trait.hasFn("release");
-const canDeinit = std.meta.trait.hasFn("deinit");

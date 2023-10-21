@@ -10,6 +10,7 @@ const types = @import("types.zig");
 const Val = types.Val;
 const String = types.String;
 const Quote = types.Quote;
+const free = types.free;
 
 pub const Dt = struct {
     allocator: Allocator,
@@ -29,13 +30,7 @@ pub const Dt = struct {
     }
 
     pub fn deinit(self: Self) void {
-        for (self.context.items) |ctx| {
-            for (ctx.contents.items) |val| {
-                val.deinit();
-            }
-            ctx.release();
-        }
-        self.context.deinit();
+        free(self.context);
     }
 
     pub fn push(self: *Self, val: Val) !void {
@@ -65,7 +60,7 @@ pub const Dt = struct {
             try stderr.print("ERR: stack underflow\n", .{});
         } else {
             var val: Val = top.contents.pop();
-            val.deinit();
+            free(val);
         }
         try self.context.append(top);
     }
