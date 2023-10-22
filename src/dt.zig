@@ -68,12 +68,18 @@ pub const Dt = struct {
     pub fn readln(self: *Self) !void {
         var line = try String.new(self.allocator);
         try stdin.streamUntilDelimiter(line.contents.writer(), '\n', null);
+        try self.run(&line);
+    }
+
+    pub fn run(self: *Self, linePtr: *String) !void {
+        var line = linePtr.*;
+
         if (line.contents.items.len < 1) {
-            return;
+            return free(line);
         } else if (line.contents.items[0] == '"' and line.contents.getLast() == '"') {
             _ = line.contents.orderedRemove(0);
             _ = line.contents.pop();
-            try self.push(.{ .string = line });
+            return try self.push(.{ .string = line });
         } else if (std.mem.eql(u8, "dup", line.contents.items)) {
             try self.dup();
         } else if (std.mem.eql(u8, "drop", line.contents.items)) {
@@ -87,6 +93,7 @@ pub const Dt = struct {
             try top.contents.append(.{ .quote = q });
             try self.context.append(top);
         }
+        free(line);
     }
 
     pub fn status(self: Self) !void {
@@ -131,6 +138,26 @@ test "drop" {
     var s = try String.new(std.testing.allocator);
     try s.contents.appendSlice("hello");
     try dt.push(.{ .string = s });
+
+    try dt.drop();
+}
+
+test "[ \"hello\" ] drop" {
+    var dt = try Dt.init(std.testing.allocator);
+    defer dt.deinit();
+
+    var openBracket = try String.new(std.testing.allocator);
+    try openBracket.contents.appendSlice("[");
+    var helloString = try String.new(std.testing.allocator);
+    try helloString.contents.appendSlice("\"hello\"");
+    var closeBracket = try String.new(std.testing.allocator);
+    try closeBracket.contents.appendSlice("]");
+
+    try dt.run(&openBracket);
+    try dt.run(&helloString);
+    try dt.run(&closeBracket);
+
+    // try dt.status();
 
     try dt.drop();
 }
