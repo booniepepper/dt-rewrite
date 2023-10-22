@@ -145,7 +145,7 @@ test "drop" {
     try dt.drop();
 }
 
-test "[ \"hello\" ] drop" {
+test "[ \"hello\" ] dup drop drop" {
     var dt = try Dt.init(std.testing.allocator);
     defer dt.deinit();
 
@@ -162,5 +162,7 @@ test "[ \"hello\" ] drop" {
 
     // try dt.status();
 
+    try dt.dup();
+    try dt.drop();
     try dt.drop();
 }
