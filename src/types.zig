@@ -2,6 +2,10 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 
+const mem = @import("mem.zig");
+const free = mem.free;
+const canClone = mem.canClone;
+
 pub const Val = union(enum) {
     string: String,
     quote: Quote,
@@ -36,19 +40,6 @@ pub const Val = union(enum) {
         }
     }
 };
-
-const canClone = std.meta.trait.hasFn("clone");
-
-const canRelease = std.meta.trait.hasFn("release");
-const canDeinit = std.meta.trait.hasFn("deinit");
-const hasItems = std.meta.trait.hasField("items");
-
-pub fn free(thing: anytype) void {
-    const T = @TypeOf(thing);
-    if (comptime hasItems(T)) for (thing.items) |item| free(item);
-    if (comptime canDeinit(T)) thing.deinit();
-    if (comptime canRelease(T)) thing.release();
-}
 
 pub const String = RcArrayList(u8);
 pub const Quote = RcArrayList(Val);

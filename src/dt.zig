@@ -6,11 +6,14 @@ const stdin = std.io.getStdIn().reader();
 const stdout = std.io.getStdOut().writer();
 const stderr = std.io.getStdErr().writer();
 
+const mem = @import("mem.zig");
+const free = mem.free;
+const canClone = mem.canClone;
+
 const types = @import("types.zig");
 const Val = types.Val;
 const String = types.String;
 const Quote = types.Quote;
-const free = types.free;
 
 pub const Dt = struct {
     allocator: Allocator,
