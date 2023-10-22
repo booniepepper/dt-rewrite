@@ -8,7 +8,6 @@ const stderr = std.io.getStdErr().writer();
 
 const mem = @import("mem.zig");
 const free = mem.free;
-const canClone = mem.canClone;
 
 const types = @import("types.zig");
 const Val = types.Val;
