@@ -68,6 +68,7 @@ pub const Dictionary = HashMap(String, Command, StringContext, std.hash_map.defa
 pub const QuoteStuff = struct {
     vals: Rc(ArrayList(Val)),
     defs: Rc(Dictionary),
+    allocator: Allocator,
 
     const Self = @This();
 
@@ -77,12 +78,33 @@ pub const QuoteStuff = struct {
         return .{
             .vals = vals,
             .defs = defs,
+            .allocator = allocator,
         };
     }
 
     pub fn deinit(self: Self) void {
         free(self.vals);
         free(self.defs);
+    }
+
+    pub fn define(self: *Self, name: String, command: Command) !void {
+        if (self.defs.refs.* > 1) self.defs = self.defs.newref();
+        try self.defs.it.put(name, command);
+    }
+
+    pub fn defineBuiltin(self: *Self, name: []const u8, builtin: *const fn (*Quote) anyerror!void) !void {
+        var nameString: String = try String.new(self.allocator);
+        try nameString.it.appendSlice(name);
+        try self.define(nameString, .{ .builtin = builtin });
+    }
+
+    pub fn push(self: *Self, val: Val) !void {
+        try self.vals.it.append(val);
+    }
+
+    pub fn pop(self: *Self) !Val {
+        const val = self.vals.it.pop();
+        return val;
     }
 };
 
