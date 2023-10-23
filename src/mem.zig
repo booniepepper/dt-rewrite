@@ -8,21 +8,22 @@ const hasItems = std.meta.trait.hasField("items");
 const hasKeys = std.meta.trait.hasFn("keyIterator");
 const hasValues = std.meta.trait.hasFn("valueIterator");
 
-pub fn free(thing: anytype) void {
-    const T = @TypeOf(thing);
+pub fn free(something: anytype) void {
+    const T = @TypeOf(something);
+    var thing = something;
+
+    if (comptime std.meta.trait.isSingleItemPtr(T)) return free(thing.*);
+
     if (comptime hasItems(T)) for (thing.items) |item| free(item);
     if (comptime hasKeys(T)) {
         var it = thing.keyIterator();
-        while (it.next()) |key| free(key.*);
+        while (it.next()) |key| free(key);
     }
     if (comptime hasValues(T)) {
         var it = thing.valueIterator();
-        while (it.next()) |value| free(value.*);
+        while (it.next()) |value| free(value);
     }
 
-    if (comptime canDeinit(T)) {
-        var it = thing;
-        it.deinit();
-    }
+    if (comptime canDeinit(T)) thing.deinit();
     if (comptime canRelease(T)) thing.release();
 }

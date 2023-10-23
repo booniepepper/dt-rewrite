@@ -8,43 +8,47 @@ const free = mem.free;
 const canClone = mem.canClone;
 
 pub const Val = union(enum) {
-    string: String,
+    command: String,
     quote: Quote,
+    string: String,
 
     const Self = Val;
 
     pub fn deinit(self: Self) void {
         switch (self) {
-            .string => |s| free(s),
+            .command => |cmd| free(cmd),
             .quote => |q| free(q),
+            .string => |s| free(s),
         }
     }
 
     pub fn copy(self: *Self) !Self {
         return switch (self.*) {
+            .command => |*cmd| .{ .command = cmd.newref() },
+            .quote => |*q| .{ .quote = q.copy() },
             .string => |*s| .{ .string = s.newref() },
-            .quote => |*q| .{ .quote = q.newref() },
         };
     }
 
     pub fn print(self: Self, writer: anytype) !void {
         switch (self) {
-            .string => |s| try writer.print("\"{s}\"", .{s.it.items}),
+            .command => |cmd| try writer.print("{s}", .{cmd.it.items}),
             .quote => |q| {
                 try writer.print("[ ", .{});
-                for (q.it.vals.it.items) |v| {
+                for (q.vals.it.items) |v| {
                     try v.print(writer);
                     try writer.print(" ", .{});
                 }
                 try writer.print("]", .{});
             },
+            .string => |s| try writer.print("\"{s}\"", .{s.it.items}),
         }
     }
 };
 
 pub const Command = union(enum) {
     builtin: *const fn (*Quote) anyerror!void,
-    quote: Quote,
+    quote: Rc(Quote),
 
     const Self = @This();
 
@@ -59,13 +63,26 @@ pub const Command = union(enum) {
             },
         }
     }
+
+    pub fn deinit(self: Self) void {
+        switch (self) {
+            .builtin => {},
+            .quote => |q| free(q),
+        }
+    }
+
+    pub fn newref(self: *Self) Self {
+        return switch (self.*) {
+            .builtin => self.*,
+            .quote => |*q| .{ .quote = q.newref() },
+        };
+    }
 };
 
-pub const Quote = Rc(QuoteStuff);
-
+// Golly a persistent map would be nice around here.
 pub const Dictionary = HashMap(String, Command, StringContext, std.hash_map.default_max_load_percentage);
 
-pub const QuoteStuff = struct {
+pub const Quote = struct {
     vals: Rc(ArrayList(Val)),
     defs: Rc(Dictionary),
     allocator: Allocator,
@@ -87,15 +104,50 @@ pub const QuoteStuff = struct {
         free(self.defs);
     }
 
-    pub fn define(self: *Self, name: String, command: Command) !void {
-        if (self.defs.refs.* > 1) self.defs = self.defs.newref();
-        try self.defs.it.put(name, command);
+    pub fn copy(self: *Self) Self {
+        return .{
+            .vals = self.vals.newref(),
+            .defs = self.defs.newref(),
+            .allocator = self.allocator,
+        };
+    }
+
+    pub fn child(self: *Self) !Self {
+        var vals = try Rc(ArrayList(Val)).new(self.allocator);
+        return .{
+            .vals = vals,
+            .defs = self.defs.newref(),
+            .allocator = self.allocator,
+        };
+    }
+
+    pub fn define(self: *Self, name: String, quote: Quote) !void {
+        if (self.defs.refs.* > 1) {
+            var newDefs = try self.defs.clone();
+            self.defs.release();
+            self.defs = newDefs;
+        }
+
+        const refs = try self.allocator.create(usize);
+        refs.* = 1;
+        var command = Rc(Quote){
+            .allocator = self.allocator,
+            .it = quote,
+            .refs = refs,
+        };
+
+        var prev = try self.defs.it.fetchPut(name, .{ .quote = command });
+
+        if (prev != null) {
+            free(prev.?.key);
+            free(prev.?.value);
+        }
     }
 
     pub fn defineBuiltin(self: *Self, name: []const u8, builtin: *const fn (*Quote) anyerror!void) !void {
         var nameString: String = try String.new(self.allocator);
         try nameString.it.appendSlice(name);
-        try self.define(nameString, .{ .builtin = builtin });
+        try self.defs.it.putNoClobber(nameString, .{ .builtin = builtin });
     }
 
     pub fn push(self: *Self, val: Val) !void {
@@ -118,6 +170,12 @@ pub const StringContext = struct {
         return std.mem.eql(u8, a.it.items, b.it.items);
     }
 };
+
+pub fn makeString(raw: []const u8, allocator: Allocator) !String {
+    var string: String = try String.new(allocator);
+    try string.it.appendSlice(raw);
+    return string;
+}
 
 /// A reference-counted thing.
 pub fn Rc(comptime IT: type) type {
@@ -157,6 +215,15 @@ pub fn Rc(comptime IT: type) type {
         /// Creates a clone, allocating a new copy of the string's it.
         pub fn clone(self: *Self) !Self {
             var theClone = try Self.new(self.allocator);
+
+            if (IT == Dictionary) {
+                var entries = self.it.iterator();
+                while (entries.next()) |entry| {
+                    try theClone.it.put(entry.key_ptr.newref(), entry.value_ptr.newref());
+                }
+                return theClone;
+            }
+
             try theClone.it.ensureTotalCapacity(self.it.items);
 
             if (canClone(IT)) {
