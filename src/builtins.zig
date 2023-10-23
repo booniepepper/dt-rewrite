@@ -6,6 +6,7 @@ const mem = @import("mem.zig");
 const free = mem.free;
 
 const types = @import("types.zig");
+const Command = types.Command;
 const Quote = types.Quote;
 const Val = types.Val;
 
@@ -34,6 +35,30 @@ pub fn def(context: *Quote) !void {
     };
 
     try context.define(name, command);
+}
+
+pub fn do(context: *Quote) !void {
+    var commandVal = try context.pop();
+
+    var commandName = switch (commandVal) {
+        .command => |cmd| cmd,
+        .string => |s| s,
+        .quote => |*q| {
+            var command = try Command.ofImmediate(q);
+            try command.run(context);
+            free(command);
+            return;
+        },
+    };
+
+    var command = context.defs.it.get(commandName) orelse {
+        try stderr.print("ERR: command undefined: {s}\n", .{commandName.it.items});
+        try context.push(commandVal);
+        return;
+    };
+
+    try command.run(context);
+    free(commandVal);
 }
 
 pub fn dup(context: *Quote) !void {

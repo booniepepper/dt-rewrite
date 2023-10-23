@@ -3,6 +3,8 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const HashMap = std.HashMap;
 
+const stderr = std.io.getStdErr().writer();
+
 const mem = @import("mem.zig");
 const free = mem.free;
 const canClone = mem.canClone;
@@ -52,14 +54,54 @@ pub const Command = union(enum) {
 
     const Self = @This();
 
+    pub fn ofImmediate(quote: *Quote) !Self {
+        const refs = try quote.allocator.create(usize);
+        refs.* = 1;
+        return .{ .quote = .{
+            .allocator = quote.allocator,
+            .it = quote.*,
+            .refs = refs,
+        } };
+    }
+
     pub fn run(self: Self, context: *Quote) !void {
         switch (self) {
             .builtin => |cmd| return cmd(context),
-            .quote => |cmd| {
-                _ = cmd;
+            .quote => |quote| {
                 var done = false;
-                _ = done;
-                return error.Unimplemented;
+                var vals: ArrayList(Val) = quote.it.vals.it;
+                while (!done) {
+                    done = true;
+                    for (vals.items[0 .. vals.items.len - 1]) |*val| {
+                        switch (val.*) {
+                            .command => |cmd| {
+                                var command = context.defs.it.get(cmd) orelse {
+                                    try stderr.print("ERR: undefined command {s}", .{cmd.it.items});
+                                    return;
+                                };
+                                try command.run(context);
+                            },
+                            else => try context.push(try val.copy()),
+                        }
+                    }
+                    var last = vals.getLast();
+                    switch (last) {
+                        .command => |cmd| {
+                            var command = context.defs.it.get(cmd) orelse {
+                                try stderr.print("ERR: undefined command {s}", .{cmd.it.items});
+                                return;
+                            };
+                            switch (command) {
+                                .builtin => try command.run(context),
+                                .quote => |next| {
+                                    done = false;
+                                    vals = next.it.vals.it;
+                                },
+                            }
+                        },
+                        else => try context.push(try last.copy()),
+                    }
+                }
             },
         }
     }
