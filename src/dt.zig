@@ -136,3 +136,19 @@ test "[ \"hello\" ] \"greet\" def   \"greet\" do" {
     try dt.runtok("\"greet\"");
     try dt.runtok("do");
 }
+
+test "[ [ [ \"hello\" ] do ] do ] do" {
+    var dt = try Dt.init(std.testing.allocator);
+    defer free(dt);
+
+    try dt.runtok("[");
+    try dt.runtok("[");
+    try dt.runtok("[");
+    try dt.runtok("\"hello\"");
+    try dt.runtok("]");
+    try dt.runtok("do");
+    try dt.runtok("]");
+    try dt.runtok("do");
+    try dt.runtok("]");
+    try dt.runtok("do");
+}
