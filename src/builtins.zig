@@ -1,6 +1,9 @@
 const std = @import("std");
 
+const stdout = std.io.getStdOut().writer();
 const stderr = std.io.getStdErr().writer();
+
+const builtin = @import("builtin");
 
 const mem = @import("mem.zig");
 const free = mem.free;
@@ -74,4 +77,16 @@ pub fn drop(context: *Quote) !void {
         var val: Val = try context.pop();
         free(val);
     }
+}
+
+const writer = if (builtin.is_test) stderr else stdout;
+
+pub fn nl(_: *Quote) !void {
+    try writer.print("\n", .{});
+}
+
+pub fn p(context: *Quote) !void {
+    var val: Val = try context.pop();
+    try val.print(writer);
+    free(val);
 }

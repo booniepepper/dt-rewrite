@@ -34,6 +34,8 @@ pub const Dt = struct {
         try main.defineBuiltin("do", builtins.do);
         try main.defineBuiltin("drop", builtins.drop);
         try main.defineBuiltin("dup", builtins.dup);
+        try main.defineBuiltin("p", builtins.p);
+        try main.defineBuiltin("nl", builtins.nl);
 
         if (comptime builtin.mode == .Debug) {
             var nothing = try makeString("nothing", allocator);
@@ -151,4 +153,13 @@ test "[ [ [ \"hello\" ] do ] do ] do" {
     try dt.runtok("do");
     try dt.runtok("]");
     try dt.runtok("do");
+}
+
+test "\"printing worked\" p nl" {
+    var dt = try Dt.init(std.testing.allocator);
+    defer free(dt);
+
+    try dt.runtok("\"printing worked\"");
+    try dt.runtok("p");
+    try dt.runtok("nl");
 }
