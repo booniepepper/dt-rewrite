@@ -57,9 +57,11 @@ pub const Dt = struct {
     }
 
     pub fn readln(self: *Self) !void {
-        var line = try String.new(self.allocator);
-        try stdin.streamUntilDelimiter(line.it.writer(), '\n', null);
-        try self.run(&line);
+        try stdout.print(">> ", .{});
+        var line = ArrayList(u8).init(self.allocator);
+        try stdin.streamUntilDelimiter(line.writer(), '\n', null);
+        try self.runcode(line.items);
+        line.deinit();
     }
 
     pub fn status(self: Self) !void {
@@ -79,6 +81,11 @@ pub const Dt = struct {
     pub fn push(self: *Self, val: Val) !void {
         var curr = self.top();
         try curr.push(val);
+    }
+
+    pub fn runcode(self: *Self, code: []const u8) !void {
+        var toks = std.mem.tokenizeAny(u8, code, " \t\r\n");
+        while (toks.next()) |tok| try self.runtok(tok);
     }
 
     pub fn runtok(self: *Self, tok: []const u8) !void {
@@ -114,7 +121,7 @@ pub const Dt = struct {
     }
 };
 
-test "[ \"hello\" ] dup drop drop" {
+test "(toks):: [ \"hello\" ] dup drop drop" {
     var dt = try Dt.init(std.testing.allocator);
     defer free(dt);
 
@@ -124,6 +131,13 @@ test "[ \"hello\" ] dup drop drop" {
     try dt.runtok("dup");
     try dt.runtok("drop");
     try dt.runtok("drop");
+}
+
+test "(code):: [ \"hello\" ] dup drop drop" {
+    var dt = try Dt.init(std.testing.allocator);
+    defer free(dt);
+
+    try dt.runcode("[ \"hello\" ] dup drop drop");
 }
 
 test "[ \"hello\" ] \"greet\" def   \"greet\" do" {
@@ -162,4 +176,25 @@ test "\"printing worked\" p nl" {
     try dt.runtok("\"printing worked\"");
     try dt.runtok("p");
     try dt.runtok("nl");
+}
+
+test "[ [ \"hello\" p nl ] \"greet\" def [ greet ] do ] do greet" {
+    var dt = try Dt.init(std.testing.allocator);
+    defer free(dt);
+
+    try dt.runtok("[");
+    try dt.runtok("[");
+    try dt.runtok("\"hello\"");
+    try dt.runtok("p");
+    try dt.runtok("nl");
+    try dt.runtok("]");
+    try dt.runtok("\"greet\"");
+    try dt.runtok("def");
+    try dt.runtok("[");
+    try dt.runtok("greet");
+    try dt.runtok("]");
+    try dt.runtok("do");
+    try dt.runtok("]");
+    try dt.runtok("do");
+    try dt.runtok("greet"); // TODO: That's a scope leak?
 }

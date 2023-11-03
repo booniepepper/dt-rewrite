@@ -72,34 +72,36 @@ pub const Command = union(enum) {
                 var vals: ArrayList(Val) = quote.it.vals.it;
                 while (!done) {
                     done = true;
+                    var runCtx = context;
                     for (vals.items[0 .. vals.items.len - 1]) |*val| {
                         switch (val.*) {
                             .command => |cmd| {
-                                var command = context.defs.it.get(cmd) orelse {
+                                var command = runCtx.defs.it.get(cmd) orelse {
                                     try stderr.print("ERR: undefined command {s}", .{cmd.it.items});
                                     return;
                                 };
-                                try command.run(context);
+                                try command.run(runCtx);
                             },
-                            else => try context.push(try val.copy()),
+                            else => try runCtx.push(try val.copy()),
                         }
                     }
                     var last = vals.getLast();
                     switch (last) {
                         .command => |cmd| {
-                            var command = context.defs.it.get(cmd) orelse {
+                            var command = runCtx.defs.it.get(cmd) orelse {
                                 try stderr.print("ERR: undefined command {s}", .{cmd.it.items});
                                 return;
                             };
                             switch (command) {
-                                .builtin => try command.run(context),
-                                .quote => |next| {
+                                .builtin => try command.run(runCtx),
+                                .quote => |*next| {
                                     done = false;
                                     vals = next.it.vals.it;
+                                    runCtx = &next.it;
                                 },
                             }
                         },
-                        else => try context.push(try last.copy()),
+                        else => try runCtx.push(try last.copy()),
                     }
                 }
             },
