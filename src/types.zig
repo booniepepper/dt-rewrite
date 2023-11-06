@@ -199,6 +199,9 @@ pub const Quote = struct {
     }
 
     pub fn pop(self: *Self) !Val {
+        if (self.vals.it.items.len == 0) {
+            return error.StackUnderflow;
+        }
         const val = self.vals.it.pop();
         return val;
     }

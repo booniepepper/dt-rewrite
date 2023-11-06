@@ -84,6 +84,7 @@ pub const Dt = struct {
     }
 
     pub fn runcode(self: *Self, code: []const u8) !void {
+        // TODO: Use dt's tokenizer. This sucks for strings or "[]:"
         var toks = std.mem.tokenizeAny(u8, code, " \t\r\n");
         while (toks.next()) |tok| try self.runtok(tok);
     }
@@ -144,57 +145,27 @@ test "[ \"hello\" ] \"greet\" def   \"greet\" do" {
     var dt = try Dt.init(std.testing.allocator);
     defer free(dt);
 
-    try dt.runtok("[");
-    try dt.runtok("\"hello\"");
-    try dt.runtok("]");
-    try dt.runtok("\"greet\"");
-    try dt.runtok("def");
-    try dt.runtok("\"greet\"");
-    try dt.runtok("do");
+    try dt.runcode("[ \"hello\" ] \"greet\" def   \"greet\" do");
 }
 
 test "[ [ [ \"hello\" ] do ] do ] do" {
     var dt = try Dt.init(std.testing.allocator);
     defer free(dt);
 
-    try dt.runtok("[");
-    try dt.runtok("[");
-    try dt.runtok("[");
-    try dt.runtok("\"hello\"");
-    try dt.runtok("]");
-    try dt.runtok("do");
-    try dt.runtok("]");
-    try dt.runtok("do");
-    try dt.runtok("]");
-    try dt.runtok("do");
+    try dt.runcode("[ [ [ \"hello\" ] do ] do ] do");
 }
 
-test "\"printing worked\" p nl" {
+test "\"printing_worked\" p nl" {
     var dt = try Dt.init(std.testing.allocator);
     defer free(dt);
 
-    try dt.runtok("\"printing worked\"");
-    try dt.runtok("p");
-    try dt.runtok("nl");
+    try dt.runcode("\"printing_worked\" p nl");
 }
 
 test "[ [ \"hello\" p nl ] \"greet\" def [ greet ] do ] do greet" {
     var dt = try Dt.init(std.testing.allocator);
     defer free(dt);
 
-    try dt.runtok("[");
-    try dt.runtok("[");
-    try dt.runtok("\"hello\"");
-    try dt.runtok("p");
-    try dt.runtok("nl");
-    try dt.runtok("]");
-    try dt.runtok("\"greet\"");
-    try dt.runtok("def");
-    try dt.runtok("[");
-    try dt.runtok("greet");
-    try dt.runtok("]");
-    try dt.runtok("do");
-    try dt.runtok("]");
-    try dt.runtok("do");
+    try dt.runcode("[ [ \"hello\" p nl ] \"greet\" def [ greet ] do ] do");
     try dt.runtok("greet"); // TODO: That's a scope leak?
 }
