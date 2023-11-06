@@ -122,6 +122,8 @@ pub const Dt = struct {
     }
 };
 
+// ======== TEST TIME ========
+
 test "(toks):: [ \"hello\" ] dup drop drop" {
     var dt = try Dt.init(std.testing.allocator);
     defer free(dt);
@@ -134,38 +136,37 @@ test "(toks):: [ \"hello\" ] dup drop drop" {
     try dt.runtok("drop");
 }
 
-test "(code):: [ \"hello\" ] dup drop drop" {
+const hello = "[ \"hello\" ] dup drop drop";
+test hello {
     var dt = try Dt.init(std.testing.allocator);
     defer free(dt);
-
-    try dt.runcode("[ \"hello\" ] dup drop drop");
+    try dt.runcode(hello);
 }
 
-test "[ \"hello\" ] \"greet\" def   \"greet\" do" {
+const hello2 = "[ \"hello\" ] \"greet\" def   \"greet\" do";
+test hello2 {
     var dt = try Dt.init(std.testing.allocator);
     defer free(dt);
-
-    try dt.runcode("[ \"hello\" ] \"greet\" def   \"greet\" do");
+    try dt.runcode(hello2);
 }
 
-test "[ [ [ \"hello\" ] do ] do ] do" {
+const cool = "\"cool\" [ [ [ pl ] do ] do ] do";
+test cool {
     var dt = try Dt.init(std.testing.allocator);
     defer free(dt);
-
-    try dt.runcode("[ [ [ \"hello\" ] do ] do ] do");
+    try dt.runcode(cool);
 }
 
-test "\"printing_worked\" p nl" {
+const print = "\"printing_worked\" p nl";
+test print {
     var dt = try Dt.init(std.testing.allocator);
     defer free(dt);
-
-    try dt.runcode("\"printing_worked\" p nl");
+    try dt.runcode(print);
 }
 
 test "[ [ \"hello\" p nl ] \"greet\" def [ greet ] do ] do greet" {
     var dt = try Dt.init(std.testing.allocator);
     defer free(dt);
-
     try dt.runcode("[ [ \"hello\" p nl ] \"greet\" def [ greet ] do ] do");
     try dt.runtok("greet"); // TODO: This should fail, it's a scope leak
 }
