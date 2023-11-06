@@ -167,5 +167,5 @@ test "[ [ \"hello\" p nl ] \"greet\" def [ greet ] do ] do greet" {
     defer free(dt);
 
     try dt.runcode("[ [ \"hello\" p nl ] \"greet\" def [ greet ] do ] do");
-    try dt.runtok("greet"); // TODO: That's a scope leak?
+    try dt.runtok("greet"); // TODO: This should fail, it's a scope leak
 }
