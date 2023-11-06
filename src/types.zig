@@ -77,7 +77,7 @@ pub const Command = union(enum) {
                         switch (val.*) {
                             .command => |cmd| {
                                 var command = runCtx.defs.it.get(cmd) orelse {
-                                    try stderr.print("ERR: undefined command {s}", .{cmd.it.items});
+                                    try stderr.print("ERR: undefined command {s}\n", .{cmd.it.items});
                                     return;
                                 };
                                 try command.run(runCtx);
@@ -89,7 +89,7 @@ pub const Command = union(enum) {
                     switch (last) {
                         .command => |cmd| {
                             var command = runCtx.defs.it.get(cmd) orelse {
-                                try stderr.print("ERR: undefined command {s}", .{cmd.it.items});
+                                try stderr.print("ERR: undefined command {s}\n", .{cmd.it.items});
                                 return;
                             };
                             switch (command) {

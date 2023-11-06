@@ -58,10 +58,10 @@ pub const Dt = struct {
 
     pub fn readln(self: *Self) !void {
         try stdout.print(">> ", .{});
-        var line = ArrayList(u8).init(self.allocator);
-        try stdin.streamUntilDelimiter(line.writer(), '\n', null);
-        try self.runcode(line.items);
-        line.deinit();
+        var tok = ArrayList(u8).init(self.allocator);
+        try stdin.streamUntilDelimiter(tok.writer(), '\n', null);
+        try self.runcode(tok.items);
+        tok.deinit();
     }
 
     pub fn status(self: Self) !void {
@@ -94,31 +94,37 @@ pub const Dt = struct {
         try self.run(&string);
     }
 
-    pub fn run(self: *Self, linePtr: *String) !void {
-        var line = linePtr.*;
+    pub fn run(self: *Self, tokPtr: *String) !void {
+        var tok = tokPtr.*;
 
-        if (line.it.items.len < 1) {
-            return free(line);
-        } else if (line.it.items[0] == '"' and line.it.getLast() == '"') {
-            _ = line.it.orderedRemove(0);
-            _ = line.it.pop();
-            return try self.push(.{ .string = line });
-        } else if (std.mem.eql(u8, "[", line.it.items)) {
+        if (tok.it.items.len < 1) {
+            return free(tok);
+        } else if (tok.it.items[0] == '"' and tok.it.getLast() == '"') {
+            _ = tok.it.orderedRemove(0);
+            _ = tok.it.pop();
+            return try self.push(.{ .string = tok });
+        } else if (std.mem.eql(u8, "[", tok.it.items)) {
             var q = try self.top().child();
             try self.context.append(q);
-            return free(line);
-        } else if (std.mem.eql(u8, "]", line.it.items)) {
+            return free(tok);
+        } else if (std.mem.eql(u8, "]", tok.it.items)) {
             var q = self.context.pop();
             try self.push(.{ .quote = q });
-            return free(line);
+            return free(tok);
         } else if (self.isMain()) {
             var dict: Dictionary = self.top().defs.it;
-            var cmd: Command = dict.get(line) orelse return free(line);
+            var cmd: Command = dict.get(tok) orelse {
+                try stderr.print("ERR: \"{s}\" undefined\n", .{tok.it.items});
+                return free(tok);
+            };
             var context = self.top();
-            try cmd.run(context);
-            return free(line);
+            cmd.run(context) catch |e| switch (e) {
+                error.StackUnderflow => try stderr.print("ERR: stack underflow\n", .{}),
+                else => return e,
+            };
+            return free(tok);
         }
-        return try self.push(.{ .command = line });
+        return try self.push(.{ .command = tok });
     }
 };
 
