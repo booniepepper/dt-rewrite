@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
+const SinglyLinkedList = std.SinglyLinkedList;
 const HashMap = std.HashMap;
 
 const stderr = std.io.getStdErr().writer();
@@ -69,39 +70,42 @@ pub const Command = union(enum) {
             .builtin => |cmd| return cmd(context),
             .quote => |quote| {
                 var done = false;
-                var vals: ArrayList(Val) = quote.it.vals.it;
+                var runCtx = quote.it;
+
+                const DL = SinglyLinkedList(Dictionary);
+                var deflist = DL{};
+                var defs = DL.Node{ .data = context.defs.it };
+                deflist.prepend(&defs);
+
                 while (!done) {
                     done = true;
-                    var runCtx = context;
-                    for (vals.items[0 .. vals.items.len - 1]) |*val| {
+                    var vals: ArrayList(Val) = runCtx.vals.it;
+                    var thisDefs = DL.Node{ .data = runCtx.defs.it };
+                    deflist.prepend(&thisDefs);
+
+                    var i: usize = 0;
+                    for (vals.items) |*val| {
+                        const isTailCall = i == vals.items.len - 1;
+
                         switch (val.*) {
                             .command => |cmd| {
-                                var command = runCtx.defs.it.get(cmd) orelse {
-                                    try stderr.print("ERR: undefined command {s}\n", .{cmd.it.items});
+                                var command = lookup(deflist, cmd) orelse {
                                     return;
                                 };
-                                try command.run(runCtx);
+                                switch (command) {
+                                    .builtin => try command.run(&runCtx),
+                                    .quote => |*next| if (isTailCall) {
+                                        done = false;
+                                        runCtx = next.it;
+                                        // TODO: Smush defs on tail calls for memory efficiency
+                                    } else {
+                                        try command.run(&next.it);
+                                    },
+                                }
                             },
                             else => try runCtx.push(try val.copy()),
                         }
-                    }
-                    var last = vals.getLast();
-                    switch (last) {
-                        .command => |cmd| {
-                            var command = runCtx.defs.it.get(cmd) orelse {
-                                try stderr.print("ERR: undefined command {s}\n", .{cmd.it.items});
-                                return;
-                            };
-                            switch (command) {
-                                .builtin => try command.run(runCtx),
-                                .quote => |*next| {
-                                    done = false;
-                                    vals = next.it.vals.it;
-                                    runCtx = &next.it;
-                                },
-                            }
-                        },
-                        else => try runCtx.push(try last.copy()),
+                        i += 1;
                     }
                 }
             },
@@ -122,6 +126,14 @@ pub const Command = union(enum) {
         };
     }
 };
+
+fn lookup(deflist: SinglyLinkedList(Dictionary), cmd: String) ?Command {
+    var it = deflist.first;
+    while (it) |node| : (it = node.next) {
+        if (node.data.get(cmd)) |command| return command;
+    }
+    return null;
+}
 
 // Golly a persistent map would be nice around here.
 pub const Dictionary = HashMap(String, Command, StringContext, std.hash_map.default_max_load_percentage);
@@ -158,9 +170,10 @@ pub const Quote = struct {
 
     pub fn child(self: *Self) !Self {
         var vals = try Rc(ArrayList(Val)).new(self.allocator);
+        var defs = try Rc(Dictionary).new(self.allocator);
         return .{
             .vals = vals,
-            .defs = self.defs.newref(),
+            .defs = defs,
             .allocator = self.allocator,
         };
     }
@@ -180,6 +193,7 @@ pub const Quote = struct {
             .refs = refs,
         };
 
+        // TODO: Does this actually undefine on collisions?
         var prev = try self.defs.it.fetchPut(name, .{ .quote = command });
 
         if (prev != null) {
@@ -195,10 +209,12 @@ pub const Quote = struct {
     }
 
     pub fn push(self: *Self, val: Val) !void {
+        // TODO: copy on write!
         try self.vals.it.append(val);
     }
 
     pub fn pop(self: *Self) !Val {
+        // TODO: copy on write!
         if (self.vals.it.items.len == 0) {
             return error.StackUnderflow;
         }
