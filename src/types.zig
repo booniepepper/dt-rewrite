@@ -192,10 +192,12 @@ pub const Quote = struct {
     }
 
     pub fn push(self: *Self, val: Val) !void {
+        // TODO: copy on write!
         try self.vals.it.append(val);
     }
 
     pub fn pop(self: *Self) !Val {
+        // TODO: copy on write!
         if (self.vals.it.items.len == 0) {
             return error.StackUnderflow;
         }
