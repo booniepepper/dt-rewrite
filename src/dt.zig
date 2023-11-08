@@ -156,7 +156,7 @@ test hello2 {
     try dt.runcode(hello2);
 }
 
-const cool = "\"cool\" [ [ [ pl ] do ] do ] do";
+const cool = "\"cool\" [ [ [ p nl ] do ] do ] do";
 test cool {
     var dt = try Dt.init(std.testing.allocator);
     defer free(dt);
