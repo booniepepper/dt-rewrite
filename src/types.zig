@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
+const SinglyLinkedList = std.SinglyLinkedList;
 const HashMap = std.HashMap;
 
 const stderr = std.io.getStdErr().writer();
@@ -27,7 +28,7 @@ pub const Val = union(enum) {
     pub fn copy(self: *Self) !Self {
         return switch (self.*) {
             .command => |*cmd| .{ .command = cmd.newref() },
-            .quote => |*q| .{ .quote = q.copy() },
+            .quote => |*q| .{ .quote = q.newref() },
             .string => |*s| .{ .string = s.newref() },
         };
     }
@@ -37,7 +38,7 @@ pub const Val = union(enum) {
             .command => |cmd| try writer.print("{s}", .{cmd.it.items}),
             .quote => |q| {
                 try writer.print("[ ", .{});
-                for (q.vals.it.items) |v| {
+                for (q.it.vals.it.items) |v| {
                     try v.print(writer);
                     try writer.print(" ", .{});
                 }
@@ -50,59 +51,73 @@ pub const Val = union(enum) {
 
 pub const Command = union(enum) {
     builtin: *const fn (*Quote) anyerror!void,
-    quote: Rc(Quote),
+    quote: Quote,
 
     const Self = @This();
 
     pub fn ofImmediate(quote: *Quote) !Self {
-        const refs = try quote.allocator.create(usize);
-        refs.* = 1;
-        return .{ .quote = .{
-            .allocator = quote.allocator,
-            .it = quote.*,
-            .refs = refs,
-        } };
+        return .{ .quote = quote.newref() };
     }
 
     pub fn run(self: Self, context: *Quote) !void {
         switch (self) {
             .builtin => |cmd| return cmd(context),
-            .quote => |quote| {
-                var done = false;
-                var vals: ArrayList(Val) = quote.it.vals.it;
-                while (!done) {
-                    done = true;
-                    var runCtx = context;
-                    var i: usize = 0;
-                    for (vals.items) |*val| {
-                        const isTailCall = i == vals.items.len - 1;
-                        switch (val.*) {
-                            .command => |cmd| {
-                                var command = runCtx.defs.it.get(cmd) orelse {
-                                    try stderr.print("ERR: undefined command {s}\n", .{cmd.it.items});
-                                    return;
-                                };
-                                switch (command) {
-                                    .builtin => try command.run(runCtx),
-                                    .quote => |*next| if (isTailCall) {
-                                        done = false;
-                                        vals = next.it.vals.it;
-                                        runCtx = &next.it;
-                                        // done = false;
-                                        // runCtx = &next.it;
-                                        // TODO: Smush defs on tail calls for memory efficiency
-                                    } else {
-                                        try command.run(&next.it);
-                                    },
+            else => {},
+        }
+
+        var quote = self.quote;
+        var runCtx = &quote;
+
+        const DL = SinglyLinkedList(Dictionary);
+        var deflist = DL{};
+        var defs = DL.Node{ .data = context.it.defs.it };
+        deflist.prepend(&defs);
+
+        var done = false;
+        while (!done) {
+            done = true;
+
+            var vals: ArrayList(Val) = runCtx.it.vals.it;
+            var thisDefs = DL.Node{ .data = runCtx.it.defs.it };
+            deflist.prepend(&thisDefs);
+
+            for (vals.items, 0..) |*val, i| {
+                const isTailCall = i == vals.items.len - 1;
+                switch (val.*) {
+                    .command => |*cmd| {
+                        var command = lookup(deflist, cmd) orelse {
+                            try stderr.print("ERR: undefined command {s}\n", .{cmd.it.items});
+                            return;
+                        };
+                        switch (command) {
+                            .builtin => try command.run(runCtx),
+                            .quote => |next| {
+                                var nextCtx = next;
+                                if (isTailCall) {
+                                    done = false;
+                                    runCtx = &nextCtx;
+                                    // TODO: Smush defs on tail calls for correctness and memory efficiency
+                                } else {
+                                    try command.run(&nextCtx);
                                 }
                             },
-                            else => try runCtx.push(try val.copy()),
                         }
-                        i += 1;
-                    }
+                    },
+                    else => try runCtx.it.push(try val.copy()),
                 }
-            },
+            }
         }
+    }
+
+    fn lookup(deflist: SinglyLinkedList(Dictionary), cmd: *String) ?Command {
+        var it = deflist.first;
+        while (it) |node| : (it = node.next) {
+            if (node.data.getPtr(cmd.*)) |command| {
+                var theCommand = command;
+                return theCommand.newref();
+            }
+        }
+        return null;
     }
 
     pub fn deinit(self: Self) void {
@@ -121,9 +136,12 @@ pub const Command = union(enum) {
 };
 
 // Golly a persistent map would be nice around here.
+// TODO: Implement a Ctrie. https://en.wikipedia.org/wiki/Ctrie
 pub const Dictionary = HashMap(String, Command, StringContext, std.hash_map.default_max_load_percentage);
 
-pub const Quote = struct {
+pub const Quote = Rc(Context);
+
+pub const Context = struct {
     vals: Rc(ArrayList(Val)),
     defs: Rc(Dictionary),
     allocator: Allocator,
@@ -145,7 +163,7 @@ pub const Quote = struct {
         free(self.defs);
     }
 
-    pub fn copy(self: *Self) Self {
+    pub fn copy(self: Self) Self {
         return .{
             .vals = self.vals.newref(),
             .defs = self.defs.newref(),
@@ -162,6 +180,11 @@ pub const Quote = struct {
         };
     }
 
+    /// Defines a dynamic dt command. Creates a new references for the name,
+    /// and copies the quote.
+    ///
+    /// If this is performed in a "child" quote that was referring to
+    /// an existing
     pub fn define(self: *Self, name: String, quote: Quote) !void {
         if (self.defs.refs.* > 1) {
             var newDefs = try self.defs.clone();
@@ -169,15 +192,7 @@ pub const Quote = struct {
             self.defs = newDefs;
         }
 
-        const refs = try self.allocator.create(usize);
-        refs.* = 1;
-        var command = Rc(Quote){
-            .allocator = self.allocator,
-            .it = quote,
-            .refs = refs,
-        };
-
-        var prev = try self.defs.it.fetchPut(name, .{ .quote = command });
+        var prev = try self.defs.it.fetchPut(name, .{ .quote = quote.newref() });
 
         if (prev != null) {
             free(prev.?.key);
@@ -185,6 +200,8 @@ pub const Quote = struct {
         }
     }
 
+    /// Defines a built-in dt command. Allocates a String for the name, and
+    /// assumes there will be no name conflicts.
     pub fn defineBuiltin(self: *Self, name: []const u8, builtin: *const fn (*Quote) anyerror!void) !void {
         var nameString: String = try String.new(self.allocator);
         try nameString.it.appendSlice(name);
@@ -207,6 +224,7 @@ pub const Quote = struct {
 };
 
 pub const String = Rc(ArrayList(u8));
+
 pub const StringContext = struct {
     const Self = @This();
     pub fn hash(_: Self, str: String) u64 {
@@ -249,7 +267,7 @@ pub fn Rc(comptime IT: type) type {
         }
 
         /// Creates a new reference.
-        pub fn newref(self: *Self) Self {
+        pub fn newref(self: Self) Self {
             self.refs.* += 1;
             return .{
                 .allocator = self.allocator,
@@ -258,7 +276,7 @@ pub fn Rc(comptime IT: type) type {
             };
         }
 
-        /// Creates a clone, allocating a new copy of the string's it.
+        /// Creates a clone, allocating a new copy of "it."
         pub fn clone(self: *Self) !Self {
             var theClone = try Self.new(self.allocator);
 

@@ -14,34 +14,35 @@ const Quote = types.Quote;
 const Val = types.Val;
 
 pub fn def(context: *Quote) !void {
-    var nameVal = try context.pop();
-    var commandVal = try context.pop();
+    var nameVal = try context.it.pop();
+    var commandVal = try context.it.pop();
 
     var name = switch (nameVal) {
         .command => |cmd| cmd,
         .string => |s| s,
         else => {
             try stderr.print("ERR: name was not stringy\n", .{});
-            try context.push(commandVal);
-            try context.push(nameVal);
+            try context.it.push(commandVal);
+            try context.it.push(nameVal);
             return;
         },
     };
 
     var command = switch (commandVal) {
         .quote => |q| q,
-        else => blk: {
-            var newquote = try context.child();
-            try newquote.push(commandVal);
-            break :blk newquote;
+        else => {
+            var newquote = try Quote.new(context.it.allocator);
+            newquote.it = try context.it.child();
+            try newquote.it.push(commandVal);
+            return try context.it.define(name.newref(), newquote);
         },
     };
 
-    try context.define(name, command);
+    try context.it.define(name, command);
 }
 
 pub fn do(context: *Quote) !void {
-    var commandVal = try context.pop();
+    var commandVal = try context.it.pop();
 
     var commandName = switch (commandVal) {
         .command => |cmd| cmd,
@@ -54,9 +55,9 @@ pub fn do(context: *Quote) !void {
         },
     };
 
-    var command = context.defs.it.get(commandName) orelse {
+    var command = context.it.defs.it.get(commandName) orelse {
         try stderr.print("ERR: command undefined: {s}\n", .{commandName.it.items});
-        try context.push(commandVal);
+        try context.it.push(commandVal);
         return;
     };
 
@@ -65,16 +66,16 @@ pub fn do(context: *Quote) !void {
 }
 
 pub fn dup(context: *Quote) !void {
-    var val: Val = context.vals.it.pop();
-    try context.push(try val.copy());
-    try context.push(val);
+    var val: Val = context.it.vals.it.pop();
+    try context.it.push(try val.copy());
+    try context.it.push(val);
 }
 
 pub fn drop(context: *Quote) !void {
-    if (context.vals.it.items.len < 1) {
+    if (context.it.vals.it.items.len < 1) {
         try stderr.print("ERR: stack underflow\n", .{});
     } else {
-        var val: Val = try context.pop();
+        var val: Val = try context.it.pop();
         free(val);
     }
 }
@@ -86,7 +87,7 @@ pub fn nl(_: *Quote) !void {
 }
 
 pub fn p(context: *Quote) !void {
-    var val: Val = try context.pop();
+    var val: Val = try context.it.pop();
     try val.print(writer);
     free(val);
 }

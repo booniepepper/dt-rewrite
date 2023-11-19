@@ -30,17 +30,17 @@ pub const Dt = struct {
     pub fn init(allocator: Allocator) !Self {
         var main: Quote = try Quote.new(allocator);
 
-        try main.defineBuiltin("def", builtins.def);
-        try main.defineBuiltin("do", builtins.do);
-        try main.defineBuiltin("drop", builtins.drop);
-        try main.defineBuiltin("dup", builtins.dup);
-        try main.defineBuiltin("p", builtins.p);
-        try main.defineBuiltin("nl", builtins.nl);
+        try main.it.defineBuiltin("def", builtins.def);
+        try main.it.defineBuiltin("do", builtins.do);
+        try main.it.defineBuiltin("drop", builtins.drop);
+        try main.it.defineBuiltin("dup", builtins.dup);
+        try main.it.defineBuiltin("p", builtins.p);
+        try main.it.defineBuiltin("nl", builtins.nl);
 
         if (comptime builtin.mode == .Debug) {
             var nothing = try makeString("nothing", allocator);
             var nothingBody: Quote = try Quote.new(allocator);
-            try main.define(nothing, nothingBody);
+            try main.it.define(nothing, nothingBody);
         }
 
         var context = ArrayList(Quote).init(allocator);
@@ -80,7 +80,7 @@ pub const Dt = struct {
 
     pub fn push(self: *Self, val: Val) !void {
         var curr = self.top();
-        try curr.push(val);
+        try curr.it.push(val);
     }
 
     pub fn runcode(self: *Self, code: []const u8) !void {
@@ -104,7 +104,8 @@ pub const Dt = struct {
             _ = tok.it.pop();
             return try self.push(.{ .string = tok });
         } else if (std.mem.eql(u8, "[", tok.it.items)) {
-            var q = try self.top().child();
+            var q = try Quote.new(self.allocator);
+            q.it = try self.top().it.child();
             try self.context.append(q);
             return free(tok);
         } else if (std.mem.eql(u8, "]", tok.it.items)) {
@@ -112,7 +113,7 @@ pub const Dt = struct {
             try self.push(.{ .quote = q });
             return free(tok);
         } else if (self.isMain()) {
-            var dict: Dictionary = self.top().defs.it;
+            var dict: Dictionary = self.top().it.defs.it;
             var cmd: Command = dict.get(tok) orelse {
                 try stderr.print("ERR: \"{s}\" undefined\n", .{tok.it.items});
                 return free(tok);
@@ -149,7 +150,7 @@ test hello {
     try dt.runcode(hello);
 }
 
-const hello2 = "[ \"hello\" ] \"greet\" def   \"greet\" do";
+const hello2 = "[ \"hello\" p nl ] \"greet\" def   \"greet\" do";
 test hello2 {
     var dt = try Dt.init(std.testing.allocator);
     defer free(dt);
@@ -163,7 +164,7 @@ test cool {
     try dt.runcode(cool);
 }
 
-const print = "\"printing_worked\" p nl";
+const print = "[ \"printing_worked\" p nl ] do";
 test print {
     var dt = try Dt.init(std.testing.allocator);
     defer free(dt);
@@ -174,5 +175,5 @@ test "[ [ \"hello\" p nl ] \"greet\" def [ greet ] do ] do greet" {
     var dt = try Dt.init(std.testing.allocator);
     defer free(dt);
     try dt.runcode("[ [ \"hello\" p nl ] \"greet\" def [ greet ] do ] do");
-    try dt.runtok("greet"); // TODO: This should fail, it's a scope leak
+    // try dt.runtok("greet"); // TODO: This should fail, it's a scope leak
 }
