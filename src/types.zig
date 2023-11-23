@@ -78,7 +78,7 @@ pub const Command = union(enum) {
         while (!done) {
             done = true;
 
-            var vals: ArrayList(Val) = runCtx.it.vals.it;
+            const vals: ArrayList(Val) = runCtx.it.vals.it;
             var thisDefs = DL.Node{ .data = runCtx.it.defs.it };
             deflist.prepend(&thisDefs);
 
@@ -150,8 +150,8 @@ pub const Context = struct {
     const Self = @This();
 
     pub fn new(allocator: Allocator) !Self {
-        var vals = try Rc(ArrayList(Val)).new(allocator);
-        var defs = try Rc(Dictionary).new(allocator);
+        const vals = try Rc(ArrayList(Val)).new(allocator);
+        const defs = try Rc(Dictionary).new(allocator);
         return .{
             .vals = vals,
             .defs = defs,
@@ -173,7 +173,7 @@ pub const Context = struct {
     }
 
     pub fn child(self: *Self) !Self {
-        var vals = try Rc(ArrayList(Val)).new(self.allocator);
+        const vals = try Rc(ArrayList(Val)).new(self.allocator);
         return .{
             .vals = vals,
             .defs = self.defs.newref(),
@@ -188,12 +188,12 @@ pub const Context = struct {
     /// an existing
     pub fn define(self: *Self, name: String, quote: Quote) !void {
         if (self.defs.refs.* > 1) {
-            var newDefs = try self.defs.clone();
+            const newDefs = try self.defs.clone();
             self.defs.release();
             self.defs = newDefs;
         }
 
-        var prev = try self.defs.it.fetchPut(name, .{ .quote = quote.newref() });
+        const prev = try self.defs.it.fetchPut(name, .{ .quote = quote.newref() });
 
         if (prev != null) {
             free(prev.?.key);

@@ -38,8 +38,8 @@ pub const Dt = struct {
         try main.it.defineBuiltin("nl", builtins.nl);
 
         if (comptime builtin.mode == .Debug) {
-            var nothing = try makeString("nothing", allocator);
-            var nothingBody: Quote = try Quote.new(allocator);
+            const nothing = try makeString("nothing", allocator);
+            const nothingBody: Quote = try Quote.new(allocator);
             try main.it.define(nothing, nothingBody);
         }
 
@@ -109,7 +109,7 @@ pub const Dt = struct {
             try self.context.append(q);
             return free(tok);
         } else if (std.mem.eql(u8, "]", tok.it.items)) {
-            var q = self.context.pop();
+            const q = self.context.pop();
             try self.push(.{ .quote = q });
             return free(tok);
         } else if (self.isMain()) {
@@ -118,7 +118,7 @@ pub const Dt = struct {
                 try stderr.print("ERR: \"{s}\" undefined\n", .{tok.it.items});
                 return free(tok);
             };
-            var context = self.top();
+            const context = self.top();
             cmd.run(context) catch |e| switch (e) {
                 error.StackUnderflow => try stderr.print("ERR: stack underflow\n", .{}),
                 else => return e,
