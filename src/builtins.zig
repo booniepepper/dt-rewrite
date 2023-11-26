@@ -7,6 +7,7 @@ const builtin = @import("builtin");
 
 const mem = @import("mem.zig");
 const free = mem.free;
+const Rc = mem.Rc;
 
 const types = @import("types.zig");
 const Command = types.Command;
@@ -14,70 +15,62 @@ const Quote = types.Quote;
 const Val = types.Val;
 
 pub fn def(context: *Quote) !void {
-    var nameVal = try context.it.pop();
-    var commandVal = try context.it.pop();
+    var nameVal = try context.pop();
+    defer free(nameVal);
+
+    var commandVal = try context.pop();
+    defer free(commandVal);
 
     var name = switch (nameVal) {
         .command => |cmd| cmd,
         .string => |s| s,
         else => {
             try stderr.print("ERR: name was not stringy\n", .{});
-            try context.it.push(commandVal);
-            try context.it.push(nameVal);
+            try context.push(try commandVal.copy());
+            try context.push(try nameVal.copy());
             return;
         },
     };
 
-    var command = switch (commandVal) {
-        .quote => |q| q,
-        else => {
-            var newquote = try Quote.new(context.it.allocator);
-            newquote.it = try context.it.child();
-            try newquote.it.push(commandVal);
-            return try context.it.define(name.newref(), newquote);
+    const q = switch (commandVal) {
+        .quote => |q| try q.copy(),
+        else => newq: {
+            var q = Quote.init(context.allocator);
+            try q.push(try commandVal.copy());
+            break :newq q;
         },
     };
 
-    try context.it.define(name, command);
+    try context.define(name.newref(), q);
 }
 
 pub fn do(context: *Quote) !void {
-    var commandVal = try context.it.pop();
+    var commandVal = try context.pop();
+    defer free(commandVal);
 
-    var commandName = switch (commandVal) {
-        .command => |cmd| cmd,
+    const commandName = switch (commandVal) {
+        .command => |name| name,
         .string => |s| s,
-        .quote => |*q| {
-            var command = try Command.ofImmediate(q);
-            try command.run(context);
-            free(command);
-            return;
-        },
+        .quote => |q| return try (Command{ .quote = q }).run(context),
     };
 
-    var command = context.it.defs.it.get(commandName) orelse {
+    var command = context.defs.get(commandName) orelse {
         try stderr.print("ERR: command undefined: {s}\n", .{commandName.it.items});
-        try context.it.push(commandVal);
-        return;
+        return try context.push(try commandVal.copy());
     };
 
     try command.run(context);
-    free(commandVal);
 }
 
 pub fn dup(context: *Quote) !void {
-    var val: Val = context.it.vals.it.pop();
-    try context.it.push(try val.copy());
-    try context.it.push(val);
+    var val: Val = context.vals.pop();
+    try context.push(try val.copy());
+    try context.push(val);
 }
 
 pub fn drop(context: *Quote) !void {
-    if (context.it.vals.it.items.len < 1) {
-        try stderr.print("ERR: stack underflow\n", .{});
-    } else {
-        var val: Val = try context.it.pop();
-        free(val);
-    }
+    const val: Val = try context.pop();
+    free(val);
 }
 
 const writer = if (builtin.is_test) stderr else stdout;
@@ -87,7 +80,7 @@ pub fn nl(_: *Quote) !void {
 }
 
 pub fn p(context: *Quote) !void {
-    var val: Val = try context.it.pop();
+    var val: Val = try context.pop();
     try val.print(writer);
     free(val);
 }

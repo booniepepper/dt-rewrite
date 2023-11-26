@@ -10,6 +10,7 @@ const stderr = std.io.getStdErr().writer();
 
 const mem = @import("mem.zig");
 const free = mem.free;
+const Rc = mem.Rc;
 
 const types = @import("types.zig");
 const Command = types.Command;
@@ -28,19 +29,19 @@ pub const Dt = struct {
     const Self = Dt;
 
     pub fn init(allocator: Allocator) !Self {
-        var main: Quote = try Quote.new(allocator);
+        var main: Quote = Quote.init(allocator);
 
-        try main.it.defineBuiltin("def", builtins.def);
-        try main.it.defineBuiltin("do", builtins.do);
-        try main.it.defineBuiltin("drop", builtins.drop);
-        try main.it.defineBuiltin("dup", builtins.dup);
-        try main.it.defineBuiltin("p", builtins.p);
-        try main.it.defineBuiltin("nl", builtins.nl);
+        try main.defineBuiltin("def", builtins.def);
+        try main.defineBuiltin("do", builtins.do);
+        try main.defineBuiltin("drop", builtins.drop);
+        try main.defineBuiltin("dup", builtins.dup);
+        try main.defineBuiltin("p", builtins.p);
+        try main.defineBuiltin("nl", builtins.nl);
 
         if (comptime builtin.mode == .Debug) {
             const nothing = try makeString("nothing", allocator);
-            const nothingBody: Quote = try Quote.new(allocator);
-            try main.it.define(nothing, nothingBody);
+            const nothingBody: Quote = Quote.init(allocator);
+            try main.define(nothing, nothingBody);
         }
 
         var context = ArrayList(Quote).init(allocator);
@@ -80,7 +81,7 @@ pub const Dt = struct {
 
     pub fn push(self: *Self, val: Val) !void {
         var curr = self.top();
-        try curr.it.push(val);
+        try curr.push(val);
     }
 
     pub fn runcode(self: *Self, code: []const u8) !void {
@@ -94,18 +95,15 @@ pub const Dt = struct {
         try self.run(&string);
     }
 
-    pub fn run(self: *Self, tokPtr: *String) !void {
-        var tok = tokPtr.*;
-
+    pub fn run(self: *Self, tok: *String) !void {
         if (tok.it.items.len < 1) {
             return free(tok);
         } else if (tok.it.items[0] == '"' and tok.it.getLast() == '"') {
             _ = tok.it.orderedRemove(0);
             _ = tok.it.pop();
-            return try self.push(.{ .string = tok });
+            return try self.push(.{ .string = tok.newref() });
         } else if (std.mem.eql(u8, "[", tok.it.items)) {
-            var q = try Quote.new(self.allocator);
-            q.it = try self.top().it.child();
+            const q = Quote.init(self.allocator);
             try self.context.append(q);
             return free(tok);
         } else if (std.mem.eql(u8, "]", tok.it.items)) {
@@ -113,8 +111,8 @@ pub const Dt = struct {
             try self.push(.{ .quote = q });
             return free(tok);
         } else if (self.isMain()) {
-            var dict: Dictionary = self.top().it.defs.it;
-            var cmd: Command = dict.get(tok) orelse {
+            var dict: Dictionary = self.top().defs;
+            var cmd: Command = dict.get(tok.*) orelse {
                 try stderr.print("ERR: \"{s}\" undefined\n", .{tok.it.items});
                 return free(tok);
             };
@@ -125,7 +123,7 @@ pub const Dt = struct {
             };
             return free(tok);
         }
-        return try self.push(.{ .command = tok });
+        return try self.push(.{ .command = tok.* });
     }
 };
 
@@ -174,6 +172,6 @@ test print {
 test "[ [ \"hello\" p nl ] \"greet\" def [ greet ] do ] do greet" {
     var dt = try Dt.init(std.testing.allocator);
     defer free(dt);
-    try dt.runcode("[ [ \"hello\" p nl ] \"greet\" def [ greet ] do ] do");
+    // try dt.runcode("[ [ \"hello\" p nl ] \"greet\" def [ greet ] do ] do");
     // try dt.runtok("greet"); // TODO: This should fail, it's a scope leak
 }

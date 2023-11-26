@@ -60,6 +60,16 @@ pub fn Rc(comptime IT: type) type {
             };
         }
 
+        pub fn newOf(allocator: Allocator, it: IT) !Self {
+            const refs = try allocator.create(usize);
+            refs.* = 1;
+            return .{
+                .allocator = allocator,
+                .it = it,
+                .refs = refs,
+            };
+        }
+
         /// Creates a new reference.
         pub fn newref(self: Self) Self {
             self.refs.* += 1;
@@ -82,14 +92,14 @@ pub fn Rc(comptime IT: type) type {
                 return theClone;
             }
 
-            try theClone.it.ensureTotalCapacity(self.it.items);
+            try theClone.it.ensureTotalCapacity(self.it.vals);
 
             if (canClone(IT)) {
-                for (self.it.items) |item| {
+                for (self.it.vals) |item| {
                     try theClone.it.append(item.clone());
                 }
             } else {
-                try theClone.it.appendSlice(self.it.items);
+                try theClone.it.appendSlice(self.it.vals);
             }
 
             return theClone;

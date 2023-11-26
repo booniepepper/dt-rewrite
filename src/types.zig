@@ -11,6 +11,11 @@ const Rc = mem.Rc;
 const free = mem.free;
 const canClone = mem.canClone;
 
+const string = @import("types/string.zig");
+pub const String = string.String;
+const StringContext = string.StringContext;
+pub const makeString = string.makeString;
+
 pub const Val = union(enum) {
     command: String,
     quote: Quote,
@@ -18,6 +23,7 @@ pub const Val = union(enum) {
 
     const Self = Val;
 
+    /// Calls mem.free() on the command, quote, or string owned by this Val.
     pub fn deinit(self: Self) void {
         switch (self) {
             .command => |cmd| free(cmd),
@@ -26,20 +32,27 @@ pub const Val = union(enum) {
         }
     }
 
-    pub fn copy(self: *Self) !Self {
+    /// Copies a Val.
+    ///
+    /// - Primitives are simple copies
+    /// - Quotes are cloned val-by-val (recursively) and def-by-def
+    /// - Strings have their reference count increased
+    pub fn copy(self: *Self) anyerror!Self {
         return switch (self.*) {
             .command => |*cmd| .{ .command = cmd.newref() },
-            .quote => |*q| .{ .quote = q.newref() },
+            .quote => |q| .{ .quote = try q.copy() },
             .string => |*s| .{ .string = s.newref() },
         };
     }
 
+    /// Prints the value to the writer.
     pub fn print(self: Self, writer: anytype) !void {
         switch (self) {
             .command => |cmd| try writer.print("{s}", .{cmd.it.items}),
             .quote => |q| {
                 try writer.print("[ ", .{});
-                for (q.it.vals.it.items) |v| {
+                // TODO: Sneak in local defs here.
+                for (q.vals.items) |v| {
                     try v.print(writer);
                     try writer.print(" ", .{});
                 }
@@ -56,10 +69,6 @@ pub const Command = union(enum) {
 
     const Self = @This();
 
-    pub fn ofImmediate(quote: *Quote) !Self {
-        return .{ .quote = quote.newref() };
-    }
-
     pub fn run(self: Self, context: *Quote) !void {
         switch (self) {
             .builtin => |cmd| return cmd(context),
@@ -71,15 +80,15 @@ pub const Command = union(enum) {
 
         const DL = SinglyLinkedList(Dictionary);
         var deflist = DL{};
-        var defs = DL.Node{ .data = context.it.defs.it };
+        var defs = DL.Node{ .data = context.defs };
         deflist.prepend(&defs);
 
         var done = false;
         while (!done) {
             done = true;
 
-            const vals: ArrayList(Val) = runCtx.it.vals.it;
-            var thisDefs = DL.Node{ .data = runCtx.it.defs.it };
+            const vals: ArrayList(Val) = runCtx.vals;
+            var thisDefs = DL.Node{ .data = runCtx.defs };
             deflist.prepend(&thisDefs);
 
             for (vals.items, 0..) |*val, i| {
@@ -104,7 +113,7 @@ pub const Command = union(enum) {
                             },
                         }
                     },
-                    else => try runCtx.it.push(try val.copy()),
+                    else => try runCtx.push(try val.copy()),
                 }
             }
         }
@@ -113,9 +122,8 @@ pub const Command = union(enum) {
     fn lookup(deflist: SinglyLinkedList(Dictionary), cmd: *String) ?Command {
         var it = deflist.first;
         while (it) |node| : (it = node.next) {
-            if (node.data.getPtr(cmd.*)) |command| {
-                var theCommand = command;
-                return theCommand.newref();
+            if (node.data.get(cmd.*)) |command| {
+                return command;
             }
         }
         return null;
@@ -128,10 +136,10 @@ pub const Command = union(enum) {
         }
     }
 
-    pub fn newref(self: *Self) Self {
+    pub fn copy(self: *Self) !Self {
         return switch (self.*) {
             .builtin => self.*,
-            .quote => |*q| .{ .quote = q.newref() },
+            .quote => |q| .{ .quote = try q.copy() },
         };
     }
 };
@@ -140,18 +148,16 @@ pub const Command = union(enum) {
 // TODO: Implement a Ctrie. https://en.wikipedia.org/wiki/Ctrie
 pub const Dictionary = HashMap(String, Command, StringContext, std.hash_map.default_max_load_percentage);
 
-pub const Quote = Rc(Context);
-
-pub const Context = struct {
-    vals: Rc(ArrayList(Val)),
-    defs: Rc(Dictionary),
+pub const Quote = struct {
+    vals: ArrayList(Val),
+    defs: Dictionary,
     allocator: Allocator,
 
     const Self = @This();
 
-    pub fn new(allocator: Allocator) !Self {
-        const vals = try Rc(ArrayList(Val)).new(allocator);
-        const defs = try Rc(Dictionary).new(allocator);
+    pub fn init(allocator: Allocator) Self {
+        const vals = ArrayList(Val).init(allocator);
+        const defs = Dictionary.init(allocator);
         return .{
             .vals = vals,
             .defs = defs,
@@ -160,40 +166,46 @@ pub const Context = struct {
     }
 
     pub fn deinit(self: Self) void {
-        free(self.vals);
         free(self.defs);
     }
 
-    pub fn copy(self: Self) Self {
-        return .{
-            .vals = self.vals.newref(),
-            .defs = self.defs.newref(),
-            .allocator = self.allocator,
-        };
+    pub fn copy(self: Self) anyerror!Self {
+        var new = Quote.init(self.allocator);
+        for (self.vals.items) |*val| {
+            const newVal = try val.copy();
+            try new.vals.append(newVal);
+        }
+
+        var entries = self.defs.iterator();
+        while (entries.next()) |entry| {
+            try new.defs.put(entry.key_ptr.newref(), try entry.value_ptr.copy());
+        }
+
+        return new;
     }
 
-    pub fn child(self: *Self) !Self {
-        const vals = try Rc(ArrayList(Val)).new(self.allocator);
-        return .{
-            .vals = vals,
-            .defs = self.defs.newref(),
-            .allocator = self.allocator,
-        };
-    }
+    // pub fn child(self: *Self) !Self {
+    //     const vals = ArrayList(Val).init(self.allocator);
+    //     var defs = Dictionary.init(self.allocator);
 
-    /// Defines a dynamic dt command. Creates a new references for the name,
-    /// and copies the quote.
+    //     var entries = self.defs.iterator();
+    //     while (entries.next()) |entry| {
+    //         try defs.put(entry.key_ptr.newref(), try entry.value_ptr.copy());
+    //     }
+
+    //     return .{
+    //         .vals = vals,
+    //         .defs = defs,
+    //         .allocator = self.allocator,
+    //     };
+    // }
+
+    /// Defines a dynamic dt command. Any copies should be made before calling this.
     ///
     /// If this is performed in a "child" quote that was referring to
     /// an existing
     pub fn define(self: *Self, name: String, quote: Quote) !void {
-        if (self.defs.refs.* > 1) {
-            const newDefs = try self.defs.clone();
-            self.defs.release();
-            self.defs = newDefs;
-        }
-
-        const prev = try self.defs.it.fetchPut(name, .{ .quote = quote.newref() });
+        const prev = try self.defs.fetchPut(name, .{ .quote = quote });
 
         if (prev != null) {
             free(prev.?.key);
@@ -206,38 +218,20 @@ pub const Context = struct {
     pub fn defineBuiltin(self: *Self, name: []const u8, builtin: *const fn (*Quote) anyerror!void) !void {
         var nameString: String = try String.new(self.allocator);
         try nameString.it.appendSlice(name);
-        try self.defs.it.putNoClobber(nameString, .{ .builtin = builtin });
+        try self.defs.putNoClobber(nameString, .{ .builtin = builtin });
     }
 
     pub fn push(self: *Self, val: Val) !void {
         // TODO: copy on write!
-        try self.vals.it.append(val);
+        try self.vals.append(val);
     }
 
     pub fn pop(self: *Self) !Val {
         // TODO: copy on write!
-        if (self.vals.it.items.len == 0) {
+        if (self.vals.items.len == 0) {
             return error.StackUnderflow;
         }
-        const val = self.vals.it.pop();
+        const val = self.vals.pop();
         return val;
     }
 };
-
-pub const String = Rc(ArrayList(u8));
-
-pub const StringContext = struct {
-    const Self = @This();
-    pub fn hash(_: Self, str: String) u64 {
-        return std.hash_map.hashString(str.it.items);
-    }
-    pub fn eql(_: Self, a: String, b: String) bool {
-        return std.mem.eql(u8, a.it.items, b.it.items);
-    }
-};
-
-pub fn makeString(raw: []const u8, allocator: Allocator) !String {
-    var string: String = try String.new(allocator);
-    try string.it.appendSlice(raw);
-    return string;
-}
