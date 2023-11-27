@@ -20,6 +20,8 @@ const String = types.String;
 const Val = types.Val;
 const makeString = types.makeString;
 
+const ByteArrayContext = @import("types/string.zig").ByteArrayContext;
+
 const builtins = @import("builtins.zig");
 
 pub const Dt = struct {
@@ -91,45 +93,52 @@ pub const Dt = struct {
     }
 
     pub fn runtok(self: *Self, tok: []const u8) !void {
-        var string = try makeString(tok, self.allocator);
-        try self.run(&string);
-    }
-
-    pub fn run(self: *Self, tok: *String) !void {
-        if (tok.it.items.len < 1) {
-            return free(tok);
-        } else if (tok.it.items[0] == '"' and tok.it.getLast() == '"') {
-            _ = tok.it.orderedRemove(0);
-            _ = tok.it.pop();
-            return try self.push(.{ .string = tok.newref() });
-        } else if (std.mem.eql(u8, "[", tok.it.items)) {
+        if (tok.len < 1) {
+            return;
+        } else if (tok[0] == '"' and tok.len > 1 and tok[tok.len - 1] == '"') {
+            const s = try makeString(tok[1 .. tok.len - 1], self.allocator);
+            try self.push(.{ .string = s });
+        } else if (std.mem.eql(u8, "[", tok)) {
             const q = Quote.init(self.allocator);
             try self.context.append(q);
-            return free(tok);
-        } else if (std.mem.eql(u8, "]", tok.it.items)) {
+        } else if (std.mem.eql(u8, "]", tok)) {
             const q = self.context.pop();
             try self.push(.{ .quote = q });
-            return free(tok);
         } else if (self.isMain()) {
             var dict: Dictionary = self.top().defs;
-            var cmd: Command = dict.get(tok.*) orelse {
-                try stderr.print("ERR: \"{s}\" undefined\n", .{tok.it.items});
-                return free(tok);
+            var cmd: Command = dict.getAdapted(tok, ByteArrayContext{}) orelse {
+                try stderr.print("ERR: \"{s}\" undefined\n", .{tok});
+                return;
             };
             const context = self.top();
             cmd.run(context) catch |e| switch (e) {
                 error.StackUnderflow => try stderr.print("ERR: stack underflow\n", .{}),
                 else => return e,
             };
-            return free(tok);
+        } else {
+            const cmd = try makeString(tok, self.allocator);
+            return try self.push(.{ .command = cmd });
         }
-        return try self.push(.{ .command = tok.* });
     }
 };
 
 // ======== TEST TIME ========
 
-test "(toks):: [ \"hello\" ] dup drop drop" {
+test "string_cleanup" {
+    var dt = try Dt.init(std.testing.allocator);
+    try dt.runtok("\"hello\"");
+    free(dt);
+}
+
+test "quoted_string_cleanup" {
+    var dt = try Dt.init(std.testing.allocator);
+    try dt.runtok("[");
+    try dt.runtok("\"hello\"");
+    try dt.runtok("]");
+    free(dt);
+}
+
+test "toks" {
     var dt = try Dt.init(std.testing.allocator);
     defer free(dt);
 
@@ -141,11 +150,18 @@ test "(toks):: [ \"hello\" ] dup drop drop" {
     try dt.runtok("drop");
 }
 
-const hello = "[ \"hello\" ] dup drop drop";
-test hello {
+const hello0 = "\"hello\" p nl";
+test hello0 {
     var dt = try Dt.init(std.testing.allocator);
     defer free(dt);
-    try dt.runcode(hello);
+    try dt.runcode(hello0);
+}
+
+const hello1 = "[ \"hello\" ] dup drop drop";
+test hello1 {
+    var dt = try Dt.init(std.testing.allocator);
+    defer free(dt);
+    try dt.runcode(hello1);
 }
 
 const hello2 = "[ \"hello\" p nl ] \"greet\" def   \"greet\" do";
@@ -172,6 +188,6 @@ test print {
 test "[ [ \"hello\" p nl ] \"greet\" def [ greet ] do ] do greet" {
     var dt = try Dt.init(std.testing.allocator);
     defer free(dt);
-    // try dt.runcode("[ [ \"hello\" p nl ] \"greet\" def [ greet ] do ] do");
+    // try dt.runcode("[ [ \"hello\" p nl ] \"greet\" def [ greet ] do ] do"); // TODO: This should pass, but is hanging forever
     // try dt.runtok("greet"); // TODO: This should fail, it's a scope leak
 }

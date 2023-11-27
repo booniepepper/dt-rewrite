@@ -166,6 +166,7 @@ pub const Quote = struct {
     }
 
     pub fn deinit(self: Self) void {
+        free(self.vals);
         free(self.defs);
     }
 
@@ -173,6 +174,7 @@ pub const Quote = struct {
         var new = Quote.init(self.allocator);
         for (self.vals.items) |*val| {
             const newVal = try val.copy();
+            try stderr.print("Copying {any}\n", .{newVal});
             try new.vals.append(newVal);
         }
 

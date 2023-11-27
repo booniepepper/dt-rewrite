@@ -17,6 +17,16 @@ pub const StringContext = struct {
     }
 };
 
+pub const ByteArrayContext = struct {
+    const Self = @This();
+    pub fn hash(_: Self, s: []const u8) u64 {
+        return std.hash_map.hashString(s);
+    }
+    pub fn eql(_: Self, a: []const u8, b: String) bool {
+        return std.mem.eql(u8, a, b.it.items);
+    }
+};
+
 pub fn makeString(raw: []const u8, allocator: Allocator) !String {
     var string: String = try String.new(allocator);
     try string.it.appendSlice(raw);
