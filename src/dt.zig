@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
+const List = std.SinglyLinkedList;
 
 const stdin = std.io.getStdIn().reader();
 const stdout = std.io.getStdOut().writer();
@@ -14,7 +15,7 @@ const Rc = mem.Rc;
 
 const types = @import("types.zig");
 const Command = types.Command;
-const Dictionary = types.Dictionary;
+const Dict = types.Dict;
 const Quote = types.Quote;
 const String = types.String;
 const Val = types.Val;
@@ -105,13 +106,13 @@ pub const Dt = struct {
             const q = self.context.pop();
             try self.push(.{ .quote = q });
         } else if (self.isMain()) {
-            var dict: Dictionary = self.top().defs;
+            var dict: Dict = self.top().defs;
             var cmd: Command = dict.getAdapted(tok, ByteArrayContext{}) orelse {
                 try stderr.print("ERR: \"{s}\" undefined\n", .{tok});
                 return;
             };
-            const context = self.top();
-            cmd.run(context) catch |e| switch (e) {
+            var runCtx = List(Quote).Node{ .data = self.top().* };
+            cmd.run(List(Quote){ .first = &runCtx }) catch |e| switch (e) {
                 error.StackUnderflow => try stderr.print("ERR: stack underflow\n", .{}),
                 else => return e,
             };

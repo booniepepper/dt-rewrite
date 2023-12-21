@@ -1,4 +1,5 @@
 const std = @import("std");
+const List = std.SinglyLinkedList;
 
 const stdout = std.io.getStdOut().writer();
 const stderr = std.io.getStdErr().writer();
@@ -14,11 +15,20 @@ const Command = types.Command;
 const Quote = types.Quote;
 const Val = types.Val;
 
-pub fn def(context: *Quote) !void {
-    var nameVal = try context.pop();
+fn topRef(context: List(Quote)) !*Quote {
+    var node = context.first orelse {
+        return error.StackUnderflow;
+    };
+    return &node.data;
+}
+
+pub fn def(context: List(Quote)) !void {
+    var top = try topRef(context);
+
+    var nameVal = try top.pop();
     defer free(nameVal);
 
-    var commandVal = try context.pop();
+    var commandVal = try top.pop();
     defer free(commandVal);
 
     var name = switch (nameVal) {
@@ -26,8 +36,8 @@ pub fn def(context: *Quote) !void {
         .string => |s| s,
         else => {
             try stderr.print("ERR: name was not stringy\n", .{});
-            try context.push(try commandVal.copy());
-            try context.push(try nameVal.copy());
+            try top.push(try commandVal.copy());
+            try top.push(try nameVal.copy());
             return;
         },
     };
@@ -35,52 +45,62 @@ pub fn def(context: *Quote) !void {
     const q = switch (commandVal) {
         .quote => |q| try q.copy(),
         else => newq: {
-            var q = Quote.init(context.allocator);
+            var q = Quote.init(top.allocator);
             try q.push(try commandVal.copy());
             break :newq q;
         },
     };
 
-    try context.define(name.newref(), q);
+    try top.define(name.newref(), q);
 }
 
-pub fn do(context: *Quote) !void {
-    var commandVal = try context.pop();
+pub fn do(context: List(Quote)) !void {
+    var top = try topRef(context);
+
+    var commandVal = try top.pop();
     defer free(commandVal);
 
     const commandName = switch (commandVal) {
         .command => |name| name,
         .string => |s| s,
-        .quote => |q| return try (Command{ .quote = q }).run(context),
+        .quote => |q| {
+            return try (Command{ .quote = q }).run(.{});
+        },
     };
 
-    var command = context.defs.get(commandName) orelse {
+    var command = top.defs.get(commandName) orelse {
         try stderr.print("ERR: command undefined: {s}\n", .{commandName.it.items});
-        return try context.push(try commandVal.copy());
+        return try top.push(try commandVal.copy());
     };
 
     try command.run(context);
 }
 
-pub fn dup(context: *Quote) !void {
-    var val: Val = context.vals.pop();
-    try context.push(try val.copy());
-    try context.push(val);
+pub fn dup(context: List(Quote)) !void {
+    var top = try topRef(context);
+
+    var val: Val = top.vals.pop();
+    try top.push(try val.copy());
+    try top.push(val);
 }
 
-pub fn drop(context: *Quote) !void {
-    const val: Val = try context.pop();
+pub fn drop(context: List(Quote)) !void {
+    var top = try topRef(context);
+
+    const val: Val = try top.pop();
     free(val);
 }
 
 const writer = if (builtin.is_test) stderr else stdout;
 
-pub fn nl(_: *Quote) !void {
+pub fn nl(_: List(Quote)) !void {
     try writer.print("\n", .{});
 }
 
-pub fn p(context: *Quote) !void {
-    var val: Val = try context.pop();
+pub fn p(context: List(Quote)) !void {
+    var top = try topRef(context);
+
+    var val: Val = try top.pop();
     try val.print(writer);
     free(val);
 }

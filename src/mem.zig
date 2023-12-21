@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const Dictionary = @import("types.zig").Dictionary;
+const Dictionary = @import("types.zig").Dict;
 
 pub const canClone = std.meta.trait.hasFn("clone");
 

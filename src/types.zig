@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
-const SinglyLinkedList = std.SinglyLinkedList;
+const List = std.SinglyLinkedList;
 const HashMap = std.HashMap;
 
 const stderr = std.io.getStdErr().writer();
@@ -63,70 +63,61 @@ pub const Val = union(enum) {
     }
 };
 
+pub fn lookup(context: List(Quote), cmd: *String) ?Command {
+    var it = context.first;
+    while (it) |node| : (it = node.next) {
+        if (node.data.defs.get(cmd.*)) |command| {
+            return command;
+        }
+    }
+    return null;
+}
+
 pub const Command = union(enum) {
-    builtin: *const fn (*Quote) anyerror!void,
+    builtin: *const fn (List(Quote)) anyerror!void,
     quote: Quote,
 
     const Self = @This();
 
-    pub fn run(self: Self, context: *Quote) !void {
+    pub fn run(self: Self, context: List(Quote)) !void {
         switch (self) {
             .builtin => |cmd| return cmd(context),
             else => {},
         }
 
-        var quote = self.quote;
-        var runCtx = &quote;
-
-        const DL = SinglyLinkedList(Dictionary);
-        var deflist = DL{};
-        var defs = DL.Node{ .data = context.defs };
-        deflist.prepend(&defs);
+        var quote = try self.quote.copy();
 
         var done = false;
         while (!done) {
             done = true;
 
-            const vals: ArrayList(Val) = runCtx.vals;
-            var thisDefs = DL.Node{ .data = runCtx.defs };
-            deflist.prepend(&thisDefs);
+            const vals: ArrayList(Val) = quote.vals;
 
             for (vals.items, 0..) |*val, i| {
                 const isTailCall = i == vals.items.len - 1;
                 switch (val.*) {
                     .command => |*cmd| {
-                        var command = lookup(deflist, cmd) orelse {
-                            try stderr.print("ERR: undefined command {s}\n", .{cmd.it.items});
+                        var command = lookup(context, cmd) orelse {
+                            try stderr.print("ERR: undefined command: {s} (in Command.run(...))\n", .{cmd.it.items});
                             return;
                         };
                         switch (command) {
-                            .builtin => try command.run(runCtx),
+                            .builtin => try command.run(context),
                             .quote => |next| {
-                                var nextCtx = next;
                                 if (isTailCall) {
                                     done = false;
-                                    runCtx = &nextCtx;
+                                    quote = try next.copy();
                                     // TODO: Smush defs on tail calls for correctness and memory efficiency
                                 } else {
-                                    try command.run(&nextCtx);
+                                    try command.run(context);
                                 }
                             },
                         }
                     },
-                    else => try runCtx.push(try val.copy()),
+                    else => try context.first.?.data.push(try val.copy()),
                 }
             }
         }
-    }
-
-    fn lookup(deflist: SinglyLinkedList(Dictionary), cmd: *String) ?Command {
-        var it = deflist.first;
-        while (it) |node| : (it = node.next) {
-            if (node.data.get(cmd.*)) |command| {
-                return command;
-            }
-        }
-        return null;
     }
 
     pub fn deinit(self: Self) void {
@@ -146,18 +137,18 @@ pub const Command = union(enum) {
 
 // Golly a persistent map would be nice around here.
 // TODO: Implement a Ctrie. https://en.wikipedia.org/wiki/Ctrie
-pub const Dictionary = HashMap(String, Command, StringContext, std.hash_map.default_max_load_percentage);
+pub const Dict = HashMap(String, Command, StringContext, std.hash_map.default_max_load_percentage);
 
 pub const Quote = struct {
     vals: ArrayList(Val),
-    defs: Dictionary,
+    defs: Dict,
     allocator: Allocator,
 
     const Self = @This();
 
     pub fn init(allocator: Allocator) Self {
         const vals = ArrayList(Val).init(allocator);
-        const defs = Dictionary.init(allocator);
+        const defs = Dict.init(allocator);
         return .{
             .vals = vals,
             .defs = defs,
@@ -217,7 +208,7 @@ pub const Quote = struct {
 
     /// Defines a built-in dt command. Allocates a String for the name, and
     /// assumes there will be no name conflicts.
-    pub fn defineBuiltin(self: *Self, name: []const u8, builtin: *const fn (*Quote) anyerror!void) !void {
+    pub fn defineBuiltin(self: *Self, name: []const u8, builtin: *const fn (List(Quote)) anyerror!void) !void {
         var nameString: String = try String.new(self.allocator);
         try nameString.it.appendSlice(name);
         try self.defs.putNoClobber(nameString, .{ .builtin = builtin });
